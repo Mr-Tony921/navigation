@@ -33,7 +33,12 @@ include_directories(
 )
 
 add_definitions(${EIGEN3_DEFINITIONS})
-
+# service
+add_service_files(
+        DIRECTORY srv
+        FILES
+        keepOutZone.srv
+)
 # messages
 add_message_files(
     DIRECTORY msg
@@ -105,6 +110,7 @@ add_library(layers
   plugins/obstacle_layer.cpp
   plugins/static_layer.cpp
   plugins/voxel_layer.cpp
+  plugins/keep_out_layer.cpp
   src/observation_buffer.cpp
 )
 add_dependencies(layers ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
