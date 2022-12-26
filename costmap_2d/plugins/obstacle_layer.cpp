@@ -44,10 +44,6 @@
 
 PLUGINLIB_EXPORT_CLASS(costmap_2d::ObstacleLayer, costmap_2d::Layer)
 
-using costmap_2d::NO_INFORMATION;
-using costmap_2d::LETHAL_OBSTACLE;
-using costmap_2d::FREE_SPACE;
-
 using costmap_2d::ObservationBuffer;
 using costmap_2d::Observation;
 
@@ -59,12 +55,15 @@ void ObstacleLayer::onInitialize()
   ros::NodeHandle nh("~/" + name_), g_nh;
   rolling_window_ = layered_costmap_->isRolling();
 
+  int inflation_option_temp;
+  nh.param("inflation_option", inflation_option_temp, static_cast<int>(costmap_2d::XJU_OPTION_NORM));
+  inflation_option_ = static_cast<uint8_t>(inflation_option_temp);
   bool track_unknown_space;
   nh.param("track_unknown_space", track_unknown_space, layered_costmap_->isTrackingUnknown());
   if (track_unknown_space)
-    default_value_ = NO_INFORMATION;
+    setDefaultValue(toOri(XJU_COST_NO_INFORMATION, inflation_option_));
   else
-    default_value_ = FREE_SPACE;
+    setDefaultValue(toOri(XJU_COST_FREE_SPACE, inflation_option_));
 
   ObstacleLayer::matchSize();
   current_ = true;
@@ -401,7 +400,10 @@ void ObstacleLayer::updateBounds(double robot_x, double robot_y, double robot_ya
       }
 
       unsigned int index = getIndex(mx, my);
-      costmap_[index] = LETHAL_OBSTACLE;
+//      setXJUcost(costmap_[index], XJU_COST_LETHAL_OBSTACLE);
+      setXJUgrid(costmap_[index], XJU_COST_LETHAL_OBSTACLE, inflation_option_);
+      // TODO by tony: in future, if obs point has special semantic, we can also set option here
+      // TODO by tony: now option is set by default value
       touch(px, py, min_x, min_y, max_x, max_y);
     }
   }
@@ -428,7 +430,7 @@ void ObstacleLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
 
   if (footprint_clearing_enabled_)
   {
-    setConvexPolygonCost(transformed_footprint_, costmap_2d::FREE_SPACE);
+    setConvexPolygonCost(transformed_footprint_, XJU_COST_FREE_SPACE);
   }
 
   switch (combination_method_)

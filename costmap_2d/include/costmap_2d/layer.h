@@ -121,6 +121,7 @@ protected:
   LayeredCostmap* layered_costmap_;
   bool current_;
   bool enabled_;  ///< Currently this var is managed by subclasses. TODO: make this managed by this class and/or container class.
+  uint8_t inflation_option_;
   std::string name_;
   tf2_ros::Buffer *tf_;
 

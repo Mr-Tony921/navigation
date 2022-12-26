@@ -49,6 +49,7 @@ namespace costmap_2d
 
 LayeredCostmap::LayeredCostmap(std::string global_frame, bool rolling_window, bool track_unknown) :
     costmap_(),
+    semantic_costmap_(),
     global_frame_(global_frame),
     rolling_window_(rolling_window),
     current_(false),
@@ -65,10 +66,13 @@ LayeredCostmap::LayeredCostmap(std::string global_frame, bool rolling_window, bo
     circumscribed_radius_(1.0),
     inscribed_radius_(0.1)
 {
-  if (track_unknown)
-    costmap_.setDefaultValue(255);
-  else
-    costmap_.setDefaultValue(0);
+  if (track_unknown) {
+    costmap_.setDefaultValue(NO_INFORMATION); // old rules
+    semantic_costmap_.setDefaultValue(toOri(XJU_COST_NO_INFORMATION, XJU_OPTION_INIT)); // new rules
+  } else {
+    costmap_.setDefaultValue(FREE_SPACE);
+    semantic_costmap_.setDefaultValue(toOri(XJU_COST_NO_INFORMATION, XJU_OPTION_INIT));
+  }
 }
 
 LayeredCostmap::~LayeredCostmap()
@@ -82,9 +86,11 @@ LayeredCostmap::~LayeredCostmap()
 void LayeredCostmap::resizeMap(unsigned int size_x, unsigned int size_y, double resolution, double origin_x,
                                double origin_y, bool size_locked)
 {
+  boost::unique_lock<Costmap2D::mutex_t> semantic_lock(*(semantic_costmap_.getMutex()));
   boost::unique_lock<Costmap2D::mutex_t> lock(*(costmap_.getMutex()));
   size_locked_ = size_locked;
   costmap_.resizeMap(size_x, size_y, resolution, origin_x, origin_y);
+  semantic_costmap_.resizeMap(size_x, size_y, resolution, origin_x, origin_y);
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
       ++plugin)
   {
@@ -96,14 +102,15 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
 {
   // Lock for the remainder of this function, some plugins (e.g. VoxelLayer)
   // implement thread unsafe updateBounds() functions.
-  boost::unique_lock<Costmap2D::mutex_t> lock(*(costmap_.getMutex()));
+  boost::unique_lock<Costmap2D::mutex_t> semantic_lock(*(semantic_costmap_.getMutex()));
 
   // if we're using a rolling buffer costmap... we need to update the origin using the robot's position
+  double new_origin_x, new_origin_y;
   if (rolling_window_)
   {
-    double new_origin_x = robot_x - costmap_.getSizeInMetersX() / 2;
-    double new_origin_y = robot_y - costmap_.getSizeInMetersY() / 2;
-    costmap_.updateOrigin(new_origin_x, new_origin_y);
+    new_origin_x = robot_x - semantic_costmap_.getSizeInMetersX() / 2;
+    new_origin_y = robot_y - semantic_costmap_.getSizeInMetersY() / 2;
+    semantic_costmap_.updateOrigin(new_origin_x, new_origin_y);
   }
 
   if (plugins_.size() == 0)
@@ -131,24 +138,30 @@ void LayeredCostmap::updateMap(double robot_x, double robot_y, double robot_yaw)
   }
 
   int x0, xn, y0, yn;
-  costmap_.worldToMapEnforceBounds(minx_, miny_, x0, y0);
-  costmap_.worldToMapEnforceBounds(maxx_, maxy_, xn, yn);
-
-  x0 = std::max(0, x0);
-  xn = std::min(int(costmap_.getSizeInCellsX()), xn + 1);
-  y0 = std::max(0, y0);
-  yn = std::min(int(costmap_.getSizeInCellsY()), yn + 1);
+  semantic_costmap_.worldToMapEnforceBounds(minx_, miny_, x0, y0);
+  semantic_costmap_.worldToMapEnforceBounds(maxx_, maxy_, xn, yn);
 
   ROS_DEBUG("Updating area x: [%d, %d] y: [%d, %d]", x0, xn, y0, yn);
 
   if (xn < x0 || yn < y0)
     return;
 
-  costmap_.resetMap(x0, y0, xn, yn);
+  semantic_costmap_.resetMap(x0, y0, xn, yn);
   for (vector<boost::shared_ptr<Layer> >::iterator plugin = plugins_.begin(); plugin != plugins_.end();
        ++plugin)
   {
-    (*plugin)->updateCosts(costmap_, x0, y0, xn, yn);
+    (*plugin)->updateCosts(semantic_costmap_, x0, y0, xn, yn);
+  }
+
+  boost::unique_lock<Costmap2D::mutex_t> lock(*(costmap_.getMutex()));
+  if (rolling_window_) {
+    costmap_.updateOrigin(new_origin_x, new_origin_y);
+  }
+
+  for (auto y = y0; y < yn; ++y) {
+    for (auto x = x0; x < xn; ++x) {
+      costmap_.setCost(x, y, interpretValue(semantic_costmap_.getCost(x, y)));
+    }
   }
 
   bx0_ = x0;
@@ -179,6 +192,19 @@ void LayeredCostmap::setFootprint(const std::vector<geometry_msgs::Point>& footp
       ++plugin)
   {
     (*plugin)->onFootprintChanged();
+  }
+}
+
+unsigned char LayeredCostmap::interpretValue(unsigned char old_grid) {
+  switch (toXJUcost(old_grid)) {
+    case XJU_COST_NO_INFORMATION:
+      return NO_INFORMATION;
+    case XJU_COST_LETHAL_OBSTACLE:
+      return LETHAL_OBSTACLE;
+    case XJU_COST_INSCRIBED_INFLATED_OBSTACLE:
+      return INSCRIBED_INFLATED_OBSTACLE;
+    default:
+      return old_grid * 8;
   }
 }
 

@@ -194,6 +194,11 @@ unsigned char Costmap2D::getCost(unsigned int mx, unsigned int my) const
   return costmap_[getIndex(mx, my)];
 }
 
+unsigned char Costmap2D::getCost(unsigned int index) const
+{
+  return costmap_[index];
+}
+
 void Costmap2D::setCost(unsigned int mx, unsigned int my, unsigned char cost)
 {
   costmap_[getIndex(mx, my)] = cost;

@@ -101,7 +101,7 @@ public:
 
   bool isTrackingUnknown()
   {
-    return costmap_.getDefaultValue() == costmap_2d::NO_INFORMATION;
+    return toXJUcost(costmap_.getDefaultValue()) == costmap_2d::XJU_COST_NO_INFORMATION;
   }
 
   std::vector<boost::shared_ptr<Layer> >* getPlugins()
@@ -154,8 +154,11 @@ public:
    * This is updated by setFootprint(). */
   double getInscribedRadius() { return inscribed_radius_; }
 
+  unsigned char interpretValue(unsigned char old_grid);
+
 private:
   Costmap2D costmap_;
+  Costmap2D semantic_costmap_;
   std::string global_frame_;
 
   bool rolling_window_;  /// < @brief Whether or not the costmap should roll with the robot

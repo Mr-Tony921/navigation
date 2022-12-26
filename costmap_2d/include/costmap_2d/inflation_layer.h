@@ -47,6 +47,7 @@
 
 namespace costmap_2d
 {
+static const int HIGH_INFLATION_SHIFT_GRID = 2;
 /**
  * @class CellData
  * @brief Storage for cell information used during obstacle inflation
@@ -63,13 +64,14 @@ public:
    * @param  sy The y coordinate of the closest obstacle cell in the costmap
    * @return
    */
-  CellData(double i, unsigned int x, unsigned int y, unsigned int sx, unsigned int sy) :
-      index_(i), x_(x), y_(y), src_x_(sx), src_y_(sy)
+  CellData(double i, unsigned int x, unsigned int y, unsigned int sx, unsigned int sy, uint8_t option) :
+      index_(i), x_(x), y_(y), src_x_(sx), src_y_(sy), option_(option)
   {
   }
   unsigned int index_;
   unsigned int x_, y_;
   unsigned int src_x_, src_y_;
+  uint8_t option_;
 };
 
 class InflationLayer : public Layer
@@ -105,15 +107,15 @@ public:
   {
     unsigned char cost = 0;
     if (distance == 0)
-      cost = LETHAL_OBSTACLE;
+      cost = XJU_COST_LETHAL_OBSTACLE;
     else if (distance * resolution_ <= inscribed_radius_)
-      cost = INSCRIBED_INFLATED_OBSTACLE;
+      cost = XJU_COST_INSCRIBED_INFLATED_OBSTACLE;
     else
     {
       // make sure cost falls off by Euclidean distance
       double euclidean_distance = distance * resolution_;
       double factor = exp(-1.0 * weight_ * (euclidean_distance - inscribed_radius_));
-      cost = (unsigned char)((INSCRIBED_INFLATED_OBSTACLE - 1) * factor);
+      cost = (unsigned char)((XJU_COST_INSCRIBED_INFLATED_OBSTACLE - 1) * factor);
     }
     return cost;
   }
@@ -159,11 +161,29 @@ private:
    * @param src_y The y coordinate of the source cell
    * @return
    */
-  inline unsigned char costLookup(int mx, int my, int src_x, int src_y)
+  inline unsigned char costLookup(int mx, int my, int src_x, int src_y, uint8_t option)
   {
     unsigned int dx = abs(mx - src_x);
     unsigned int dy = abs(my - src_y);
-    return cached_costs_[dx][dy];
+    switch (option) {
+      case XJU_OPTION_NONE:
+        return XJU_COST_FREE_SPACE;
+      case XJU_OPTION_LESS:
+        return (cached_costs_[dx][dy] >= XJU_COST_INSCRIBED_INFLATED_OBSTACLE) ? cached_costs_[dx][dy]
+                                                                               : XJU_COST_FREE_SPACE;
+      case XJU_OPTION_MORE: {
+        auto radius = cached_distances_[dx][dy];
+        if (radius <= HIGH_INFLATION_SHIFT_GRID) {
+          return XJU_COST_INSCRIBED_INFLATED_OBSTACLE;
+        } else {
+          auto x = static_cast<unsigned int>(dx * (1 - HIGH_INFLATION_SHIFT_GRID / radius));
+          auto y = static_cast<unsigned int>(dy * (1 - HIGH_INFLATION_SHIFT_GRID / radius));
+          return std::min(cached_costs_[x][y], XJU_COST_INSCRIBED_INFLATED_OBSTACLE);
+        }
+      }
+      default:
+        return cached_costs_[dx][dy];
+    }
   }
 
   void computeCaches();
@@ -175,8 +195,11 @@ private:
     return layered_costmap_->getCostmap()->cellDistance(world_dist);
   }
 
-  inline void enqueue(unsigned int index, unsigned int mx, unsigned int my,
-                      unsigned int src_x, unsigned int src_y);
+  inline void enqueue(costmap_2d::Costmap2D& grid, unsigned int index, unsigned int mx, unsigned int my,
+                      unsigned int src_x, unsigned int src_y, uint8_t option);
+
+  inline bool inflateCell(costmap_2d::Costmap2D const& master_grid, unsigned int& index,
+                          unsigned int i, unsigned int j) const;
 
   unsigned int cell_inflation_radius_;
   unsigned int cached_cell_inflation_radius_;
