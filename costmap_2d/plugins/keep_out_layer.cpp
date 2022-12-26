@@ -16,10 +16,13 @@ void KeepOutLayer::onInitialize() {
 
   nh.param("enabled", enabled_, false);
   nh.param("fill_zones", fill_zones_, true);
+  int inflation_option_temp;
+  nh.param("inflation_option", inflation_option_temp, static_cast<int>(costmap_2d::XJU_OPTION_NORM));
+  inflation_option_ = static_cast<uint8_t>(inflation_option_temp);
 
   map_received_ = false;
   rolling_window_ = layered_costmap_->isRolling();
-  setDefaultValue(NO_INFORMATION);
+  setDefaultValue(toOri(XJU_COST_NO_INFORMATION, inflation_option_));
   zone_pub_ = nh.advertise<geometry_msgs::PolygonStamped>("/record_zone", 1);
   map_sub_ = nh.subscribe("/map", 1, &KeepOutLayer::incomingMap, this);
   point_sub_ = nh.subscribe("/clicked_point", 1, &KeepOutLayer::incomingPoint, this);
@@ -97,12 +100,15 @@ void KeepOutLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, in
 
       auto it = j * size_x_ + i;
       auto master_it = my * span + mx;
-      auto grid_value = costmap_[it];
-      if (grid_value == NO_INFORMATION) continue;
+      auto grid_value = toXJUgrid(costmap_[it]);
+      if (grid_value.cost == XJU_COST_NO_INFORMATION) continue;
 
-      auto old_grid_value = master_array[master_it];
-      if (old_grid_value == NO_INFORMATION || old_grid_value < grid_value) {
-        master_array[master_it] = grid_value;
+      auto old_grid_value = toXJUgrid(master_array[master_it]);
+      if (old_grid_value.cost == XJU_COST_NO_INFORMATION || old_grid_value.cost < grid_value.cost) {
+        setXJUcost(master_array[master_it], grid_value.cost);
+      }
+      if (grid_value.cost == XJU_COST_LETHAL_OBSTACLE && old_grid_value.option < grid_value.option) {
+        setXJUoption(master_array[master_it], grid_value.option);
       }
     }
   }
@@ -156,18 +162,18 @@ inline bool KeepOutLayer::findAvailableId(uint32_t& id, ZoneConstIter& iter) con
   return (0 != id);
 }
 
-bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id, uint8_t cost) {
+bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id, uint8_t cost, uint8_t option) {
   std::lock_guard<std::mutex> lock(data_mutex_);
   bool result = true;
   if (keep_out_zones_.empty()) {
-    keep_out_zones_.emplace_back(0, cost, edges);
+    keep_out_zones_.emplace_back(0, toXJUgrid(cost, option), edges);
     id_search_start_iter_ = keep_out_zones_.end();
     id = 0;
   } else {
     ZoneConstIter iter;
     result = findAvailableId(id, iter);
     if (result) {
-      ZoneIter inserted_iter = keep_out_zones_.emplace(iter, id, cost, edges);
+      ZoneIter inserted_iter = keep_out_zones_.emplace(iter, id, toXJUgrid(cost, option), edges);
       if (iter != keep_out_zones_.end()) {
         id_search_start_iter_ = inserted_iter;
       } else {
@@ -177,7 +183,7 @@ bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id,
   }
 
   if (map_received_) {
-    setZoneValue(costmap_, edges, cost, fill_zones_);
+    setZoneValue(costmap_, edges, toXJUgrid(cost, option), fill_zones_);
     for (auto const& e : edges) {
       addExtraBounds(e.x, e.y, e.x, e.y);
     }
@@ -185,7 +191,7 @@ bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id,
   return result;
 }
 
-void KeepOutLayer::setZoneValue(unsigned char* grid, const PointVector& zone, uint8_t value, bool fill_zone) {
+void KeepOutLayer::setZoneValue(unsigned char* grid, const PointVector& zone, xju_grid_t value, bool fill_zone) {
   std::vector<PointInt> map_zone(zone.size());
   PointInt loc{0, 0};
   for (unsigned int i = 0; i < zone.size(); ++i) {
@@ -205,9 +211,12 @@ void KeepOutLayer::setZoneValue(unsigned char* grid, const PointVector& zone, ui
     if (p.y < 0 || p.y >= size_y_) continue;
 
     auto index = p.x + size_x_ * p.y;
-    auto old_grid_value = grid[index];
-    if (old_grid_value == NO_INFORMATION || old_grid_value < value) {
-      grid[index] = value;
+    auto old_grid_value = toXJUgrid(grid[index]);
+    if (old_grid_value.cost == XJU_COST_NO_INFORMATION || old_grid_value.cost < value.cost) {
+      setXJUcost(grid[index], value.cost);
+    }
+    if (value.cost == XJU_COST_LETHAL_OBSTACLE && old_grid_value.option < value.option) {
+      setXJUoption(grid[index], value.option);
     }
   }
 }
@@ -285,7 +294,7 @@ bool KeepOutLayer::keepOutZoneSrv(costmap_2d::keepOutZone::Request& req,
   ROS_INFO("[KeepOutLayer] keep out zone service called!");
   const auto add = [&](bool use_record) {
     if (use_record) req.zone = record_zone_;
-    if (req.cost == 0) req.cost = LETHAL_OBSTACLE;
+    if (req.cost == 0) req.cost = XJU_COST_LETHAL_OBSTACLE;
     auto size = req.zone.size();
     if (size < 2) return false;
 
@@ -333,7 +342,7 @@ bool KeepOutLayer::keepOutZoneSrv(costmap_2d::keepOutZone::Request& req,
         points.emplace_back(p);
       }
     }
-    return addZone(points, res.id, req.cost);
+    return addZone(points, res.id, toXJUcost(req.cost), toXJUoption(req.cost));
   };
 
   switch (req.command) {

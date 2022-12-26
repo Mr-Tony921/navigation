@@ -36,6 +36,9 @@
  *********************************************************************/
 #ifndef COSTMAP_2D_COST_VALUES_H_
 #define COSTMAP_2D_COST_VALUES_H_
+
+#include <cstdint>
+
 /** Provides a mapping for often used cost values */
 namespace costmap_2d
 {
@@ -43,5 +46,64 @@ static const unsigned char NO_INFORMATION = 255;
 static const unsigned char LETHAL_OBSTACLE = 254;
 static const unsigned char INSCRIBED_INFLATED_OBSTACLE = 253;
 static const unsigned char FREE_SPACE = 0;
+
+// xju cost & inflation option values
+static const uint8_t XJU_COST_NO_INFORMATION = 31;
+static const uint8_t XJU_COST_LETHAL_OBSTACLE = 30;
+static const uint8_t XJU_COST_INSCRIBED_INFLATED_OBSTACLE = 29;
+static const uint8_t XJU_COST_FREE_SPACE = 0;
+
+static const uint8_t XJU_OPTION_INIT = 0;
+static const uint8_t XJU_OPTION_NONE = 1;
+static const uint8_t XJU_OPTION_LESS = 2;
+static const uint8_t XJU_OPTION_NORM = 3;
+static const uint8_t XJU_OPTION_MORE = 4;
+
+typedef struct {
+uint8_t cost : 5;
+uint8_t option : 3;
+} xju_grid_t;
+
+static inline unsigned char toOri(uint8_t cost, uint8_t option) {
+  return static_cast<unsigned char>((cost & 0x1F) | (option << 5));
+}
+
+static inline unsigned char toOri(xju_grid_t grid) {
+  return toOri(grid.cost, grid.option);
+}
+
+static inline xju_grid_t toXJUgrid(unsigned char ori) {
+  return *(xju_grid_t*)&ori;
+}
+
+static inline xju_grid_t toXJUgrid(uint8_t cost, uint8_t option) {
+  return toXJUgrid(toOri(cost, option));
+}
+
+static inline unsigned char toXJUcost(unsigned char ori) {
+  return toXJUgrid(ori).cost;
+}
+
+static inline unsigned char toXJUoption(unsigned char ori) {
+  return toXJUgrid(ori).option;
+}
+
+static inline void setXJUcost(unsigned char &ori, uint8_t cost) {
+  ori = (ori & 0xE0) | (cost & 0x1F);
+}
+
+static inline void setXJUoption(unsigned char &ori, uint8_t option) {
+  ori = static_cast<unsigned char>((ori & 0x1F) | (option << 5));
+}
+
+static inline void setXJUgrid(unsigned char &ori, xju_grid_t grid, bool none_obs_option = false) {
+  setXJUcost(ori, grid.cost);
+  if (!none_obs_option && grid.cost != XJU_COST_LETHAL_OBSTACLE) return;
+  setXJUoption(ori, grid.option);
+}
+
+static inline void setXJUgrid(unsigned char &ori, uint8_t cost, uint8_t option, bool none_obs_option = false) {
+  setXJUgrid(ori, toXJUgrid(cost, option), none_obs_option);
+}
 }
 #endif  // COSTMAP_2D_COST_VALUES_H_

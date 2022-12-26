@@ -28,8 +28,8 @@ void CostmapLayer::clearArea(int start_x, int start_y, int end_x, int end_y, boo
       if((xrange && y>start_y && y<end_y)!=invert_area)
         continue;
       int index = getIndex(x,y);
-      if(grid[index]!=NO_INFORMATION){
-        grid[index] = NO_INFORMATION;
+      if(toXJUcost(grid[index])!=XJU_COST_NO_INFORMATION){
+        grid[index] = toOri(XJU_COST_NO_INFORMATION, XJU_OPTION_INIT);
       }
     }
   }
@@ -73,14 +73,19 @@ void CostmapLayer::updateWithMax(costmap_2d::Costmap2D& master_grid, int min_i, 
     unsigned int it = j * span + min_i;
     for (int i = min_i; i < max_i; i++)
     {
-      if (costmap_[it] == NO_INFORMATION){
+      auto grid_value = toXJUgrid(costmap_[it]);
+      if (grid_value.cost == XJU_COST_NO_INFORMATION){
         it++;
         continue;
       }
 
-      unsigned char old_cost = master_array[it];
-      if (old_cost == NO_INFORMATION || old_cost < costmap_[it])
-        master_array[it] = costmap_[it];
+      auto old_grid_value = toXJUgrid(master_array[it]);
+      if (old_grid_value.cost == XJU_COST_NO_INFORMATION || old_grid_value.cost < grid_value.cost) {
+        setXJUcost(master_array[it], grid_value.cost);
+      }
+      if (grid_value.cost == XJU_COST_LETHAL_OBSTACLE && old_grid_value.option < grid_value.option) {
+        setXJUoption(master_array[it], grid_value.option);
+      }
       it++;
     }
   }
@@ -117,7 +122,8 @@ void CostmapLayer::updateWithOverwrite(costmap_2d::Costmap2D& master_grid, int m
     unsigned int it = span*j+min_i;
     for (int i = min_i; i < max_i; i++)
     {
-      if (costmap_[it] != NO_INFORMATION)
+      auto grid_value = toXJUgrid(costmap_[it]);
+      if (grid_value.cost != XJU_COST_NO_INFORMATION)
         master[it] = costmap_[it];
       it++;
     }
@@ -136,21 +142,24 @@ void CostmapLayer::updateWithAddition(costmap_2d::Costmap2D& master_grid, int mi
     unsigned int it = j * span + min_i;
     for (int i = min_i; i < max_i; i++)
     {
-      if (costmap_[it] == NO_INFORMATION){
+      auto grid_value = toXJUgrid(costmap_[it]);
+      if (grid_value.cost == XJU_COST_NO_INFORMATION){
         it++;
         continue;
       }
 
-      unsigned char old_cost = master_array[it];
-      if (old_cost == NO_INFORMATION)
+      auto old_grid_value = toXJUgrid(master_array[it]);
+      if (old_grid_value.cost == XJU_COST_NO_INFORMATION)
         master_array[it] = costmap_[it];
-      else
-      {
-        int sum = old_cost + costmap_[it];
-        if (sum >= costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
-            master_array[it] = costmap_2d::INSCRIBED_INFLATED_OBSTACLE - 1;
+      else {
+        int sum = old_grid_value.cost + grid_value.cost;
+        if (sum > XJU_COST_INSCRIBED_INFLATED_OBSTACLE)
+          setXJUcost(master_array[it], XJU_COST_INSCRIBED_INFLATED_OBSTACLE - 1);
         else
-            master_array[it] = sum;
+          setXJUcost(master_array[it], sum);
+      }
+      if (grid_value.cost == XJU_COST_LETHAL_OBSTACLE && old_grid_value.option < grid_value.option) {
+        setXJUoption(master_array[it], grid_value.option);
       }
       it++;
     }

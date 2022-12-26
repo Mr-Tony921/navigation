@@ -60,15 +60,15 @@ public:
 
 private:
   struct Zone {
-  Zone() : id(0), grid(LETHAL_OBSTACLE) {}
+  Zone() : id(0), grid(toXJUgrid(XJU_COST_LETHAL_OBSTACLE, XJU_OPTION_INIT)) {}
 
-  Zone(uint32_t id, uint8_t grid, std::vector<geometry_msgs::Point> edges)
+  Zone(uint32_t id, xju_grid_t grid, std::vector<geometry_msgs::Point> edges)
     : id(id), grid(grid), edges(std::move(edges)) {
     this->edges.reserve(50);
   }
 
   uint32_t id;
-  uint8_t grid;
+  xju_grid_t grid;
   std::vector<geometry_msgs::Point> edges;
   };
 
@@ -81,7 +81,7 @@ private:
 
   void incomingPoint(const geometry_msgs::PointStampedConstPtr& point);
 
-  void setZoneValue(unsigned char* grid, const PointVector& zone, uint8_t value, bool fill_zone);
+  void setZoneValue(unsigned char* grid, const PointVector& zone, xju_grid_t value, bool fill_zone);
 
   void rasterizeZone(const std::vector<PointInt>& zone, std::vector<PointInt>& zone_cells, bool fill);
 
@@ -94,7 +94,7 @@ private:
 
   inline bool findAvailableId(uint32_t& id, ZoneConstIter& iter) const;
 
-  inline bool addZone(const PointVector& edges, uint32_t& id, uint8_t cost);
+  inline bool addZone(const PointVector& edges, uint32_t& id, uint8_t cost, uint8_t option = XJU_OPTION_INIT);
 
   inline void setAllZonesCost();
 
