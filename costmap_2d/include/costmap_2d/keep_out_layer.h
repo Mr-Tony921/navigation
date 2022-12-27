@@ -39,10 +39,6 @@ public:
     map_received_ = false;
     updating_ = false;
     recording_ = false;
-    rolling_min_x_ = 0;
-    rolling_max_x_ = 0;
-    rolling_min_y_ = 0;
-    rolling_max_y_ = 0;
   }
 
   virtual ~KeepOutLayer() = default;
@@ -81,7 +77,7 @@ private:
 
   void incomingPoint(const geometry_msgs::PointStampedConstPtr& point);
 
-  void setZoneValue(unsigned char* grid, const PointVector& zone, xju_grid_t value, bool fill_zone);
+  void setZoneValue(unsigned char* grid, const PointVector& zone, const xju_grid_t& value, bool fill_zone);
 
   void rasterizeZone(const std::vector<PointInt>& zone, std::vector<PointInt>& zone_cells, bool fill);
 
@@ -104,7 +100,6 @@ private:
   bool fill_zones_;
   bool map_received_;
   bool rolling_window_;
-  int rolling_min_x_, rolling_min_y_, rolling_max_x_, rolling_max_y_;
   ZoneList keep_out_zones_;
   ZoneIter id_search_start_iter_;
   std::atomic_bool updating_, recording_;
