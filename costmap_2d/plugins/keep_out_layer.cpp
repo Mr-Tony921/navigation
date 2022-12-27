@@ -66,44 +66,48 @@ void KeepOutLayer::updateBounds(double robot_x, double robot_y, double robot_yaw
   // never update bounds of keep out layer
   if (!map_received_ || !enabled_) return;
   useExtraBounds(min_x, min_y, max_x, max_y);
-  if (rolling_window_) {
-    auto out_width = static_cast<int>(layered_costmap_->getCostmap()->getSizeInCellsX());
-    auto out_height = static_cast<int>(layered_costmap_->getCostmap()->getSizeInCellsY());
-    int mx, my;
-    worldToMapEnforceBounds(robot_x, robot_y, mx, my);
-    rolling_min_x_ = std::max(0, mx - out_width / 2);
-    rolling_max_x_ = std::min(static_cast<int>(size_x_ - 1), mx + out_width / 2);
-    rolling_min_y_ = std::max(0, my - out_height / 2);
-    rolling_max_y_ = std::min(static_cast<int>(size_y_ - 1), my + out_height / 2);
-  }
 }
 
 void KeepOutLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j) {
   if (!map_received_ || !enabled_) return;
 
   updating_ = true;
-  unsigned char* master_array = master_grid.getCharMap();
-  unsigned int span = master_grid.getSizeInCellsX();
   if (!rolling_window_) {
-    rolling_min_x_ = min_i;
-    rolling_max_x_ = max_i;
-    rolling_min_y_ = min_j;
-    rolling_max_y_ = max_j;
+    updateWithMax(master_grid, min_i, min_j, max_i, max_j);
+    updating_ = false;
+    return;
   }
 
-  for (int j = rolling_min_y_; j < rolling_max_y_; j++) {
-    for (int i = rolling_min_x_; i < rolling_max_x_; i++) {
+  unsigned char* master_array = master_grid.getCharMap();
+  unsigned int span = master_grid.getSizeInCellsX();
+  geometry_msgs::PointStamped p;
+  // i j master_it master_grid: local
+  // mx my it costmap_: global
+  for (int j = min_j; j < max_j; j++) {
+    for (int i = min_i; i < max_i; i++) {
       double wx, wy;
+      master_grid.mapToWorld(i, j, wx, wy); // local frame
+      p.header.frame_id = layered_costmap_->getGlobalFrameID();
+      p.point.x = wx;
+      p.point.y = wy;
+      try {
+        tf_->transform(p, p, "map");
+      } catch (tf2::TransformException& e) {
+        ROS_WARN("Keep out layer local transform error: %s", e.what());
+        return;
+      }
+      wx = p.point.x;
+      wy = p.point.y;
       unsigned int mx, my;
-      mapToWorld(i, j, wx, wy);
-      if (!master_grid.worldToMap(wx, wy, mx, my)) continue;
+      if (!worldToMap(wx, wy, mx, my)) continue; // global frame
 
-      auto it = j * size_x_ + i;
-      auto master_it = my * span + mx;
+      auto it = my * size_x_ + mx;
       auto grid_value = toXJUgrid(costmap_[it]);
       if (grid_value.cost == XJU_COST_NO_INFORMATION) continue;
 
+      auto master_it = j * span + i;
       auto old_grid_value = toXJUgrid(master_array[master_it]);
+
       if (old_grid_value.cost == XJU_COST_NO_INFORMATION || old_grid_value.cost < grid_value.cost) {
         setXJUcost(master_array[master_it], grid_value.cost);
       }
@@ -173,7 +177,7 @@ bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id,
     ZoneConstIter iter;
     result = findAvailableId(id, iter);
     if (result) {
-      ZoneIter inserted_iter = keep_out_zones_.emplace(iter, id, toXJUgrid(cost, option), edges);
+      auto inserted_iter = keep_out_zones_.emplace(iter, id, toXJUgrid(cost, option), edges);
       if (iter != keep_out_zones_.end()) {
         id_search_start_iter_ = inserted_iter;
       } else {
@@ -191,7 +195,7 @@ bool KeepOutLayer::addZone(const KeepOutLayer::PointVector& edges, uint32_t& id,
   return result;
 }
 
-void KeepOutLayer::setZoneValue(unsigned char* grid, const PointVector& zone, xju_grid_t value, bool fill_zone) {
+void KeepOutLayer::setZoneValue(unsigned char* grid, const PointVector& zone, const xju_grid_t& value, bool fill_zone) {
   std::vector<PointInt> map_zone(zone.size());
   PointInt loc{0, 0};
   for (unsigned int i = 0; i < zone.size(); ++i) {
@@ -342,7 +346,7 @@ bool KeepOutLayer::keepOutZoneSrv(costmap_2d::keepOutZone::Request& req,
         points.emplace_back(p);
       }
     }
-    return addZone(points, res.id, toXJUcost(req.cost), toXJUoption(req.cost));
+    return addZone(points, res.id, toXJUcost(req.cost), toXJUoption(req.cost)); // todo 对使用srv的用户要求较高，考虑外部仅保持cost
   };
 
   switch (req.command) {
@@ -412,8 +416,8 @@ bool KeepOutLayer::keepOutZoneSrv(costmap_2d::keepOutZone::Request& req,
 }
 
 inline void KeepOutLayer::setAllZonesCost() {
-  for (ZoneIter iter = keep_out_zones_.begin(); iter != keep_out_zones_.end(); ++iter) {
-    setZoneValue(costmap_, (*iter).edges, (*iter).grid, fill_zones_);
+  for (auto const& zone : keep_out_zones_) {
+    setZoneValue(costmap_, zone.edges, zone.grid, fill_zones_);
   }
   addExtraBounds(origin_x_, origin_y_, origin_x_ + resolution_ * size_x_, origin_y_ + resolution_ * size_y_);
 }
