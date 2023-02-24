@@ -8,10 +8,11 @@
 #include <mutex>
 #include <utility>
 
-#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PointStamped.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <ros/ros.h>
 #include <tf/transform_datatypes.h>
+#include <tf2/utils.h>
 
 #include <XmlRpcException.h>
 #include <XmlRpcValue.h>
