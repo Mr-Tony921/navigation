@@ -247,7 +247,7 @@ void InflationLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, 
 
       auto option = cell.option_;
       // only set current max to seen_
-      if (toXJUoption(master_array[index]) == option) {
+      if (toXJUoption(master_array[index]) == option || (toXJUoption(master_array[index]) == XJU_OPTION_NORM && option == XJU_OPTION_INIT)) {
         seen_[index] = true;
       }
 
